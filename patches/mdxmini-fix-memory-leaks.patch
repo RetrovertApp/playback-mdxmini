@@ -1,0 +1,10 @@
+--- a/src/mdxmini.c
++++ b/src/mdxmini.c
+@@ -386,6 +386,7 @@
+     mdx_close_mdx( data->mdx );
+
+     self_destroy(data->songdata);
++    free(data->songdata);
+ }
+
+ int  mdx_get_sample_size ( t_mdxmini *data )

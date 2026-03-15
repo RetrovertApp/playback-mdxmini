@@ -1,0 +1,19 @@
+--- a/src/mdxmini.h
++++ b/src/mdxmini.h
+@@ -4,6 +4,9 @@
+  * \author Misty De Meo
+  * \date 3 January 2016
+  */
++#ifdef __cplusplus
++extern "C" {
++#endif /* __cplusplus */
+
+ #ifndef __MDXMINI_H__
+ #define __MDXMINI_H__
+@@ -141,3 +144,6 @@
+ void mdx_get_current_notes(t_mdxmini *data, int *notes, int len);
+
+ #endif
++#ifdef __cplusplus
++}
++#endif /* __cplusplus */

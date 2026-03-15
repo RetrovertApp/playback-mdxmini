@@ -1,0 +1,12 @@
+--- a/src/mdx2151.c
++++ b/src/mdx2151.c
+@@ -161,6 +161,9 @@
+ {
+   mdx2151_instances* self = (mdx2151_instances *)in_self;
+   if (self) {
++    if (self->YM2151_Instance) {
++      YM2151Shutdown(self->YM2151_Instance);
++    }
+     free(self);
+   }
+ }

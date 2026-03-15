@@ -1,0 +1,131 @@
+--- a/src/ym2151.h
++++ b/src/ym2151.h
+@@ -95,5 +95,21 @@
+ void YM2151SetPortWriteHandler(void *chip, write8_handler handler);
+
+ /* refresh chip when load state */
+ void YM2151Postload(void *chip);
++
++/* Scope capture ring buffer constants */
++#define YM2151_SCOPE_BUFFER_SIZE  1024
++#define YM2151_SCOPE_BUFFER_MASK  (YM2151_SCOPE_BUFFER_SIZE - 1)
++#define YM2151_SCOPE_NUM_CHANNELS 8
++
++/* Enable or disable per-channel scope capture */
++void YM2151EnableScope(void *chip, int enable);
++
++/* Retrieve per-channel scope data from ring buffer.
++ * Returns number of samples written to buffer.
++ */
++unsigned int YM2151GetScopeData(void *chip, int channel, float *buffer, unsigned int num_samples);
++
++/* Return the most recently initialized YM2151 chip instance */
++void *YM2151GetLastChip(void);
+ #endif /*_H_YM2151_*/
+--- a/src/ym2151.c
++++ b/src/ym2151.c
+@@ -172,6 +172,12 @@
+
+ 	unsigned int clock;					/* chip clock in Hz (passed from 2151intf.c) */
+ 	unsigned int sampfreq;				/* sampling frequency in Hz (passed from 2151intf.c) */
++
++	/* Scope capture ring buffers for per-channel audio visualization */
++	float    scope_buffer[YM2151_SCOPE_NUM_CHANNELS][YM2151_SCOPE_BUFFER_SIZE];
++	UINT32   scope_write_pos[YM2151_SCOPE_NUM_CHANNELS];
++	int      scope_enabled;
++
+ } YM2151;
+
+
+@@ -486,6 +492,10 @@
+
+ /* these variables stay here for speedup purposes only */
+ static YM2151 * PSG;
++
++/* Most recently initialized chip, for scope access from plugin */
++static void *ym2151_last_chip = NULL;
++
+ static signed int chanout[8];
+ static signed int m2,c1,c2; /* Phase Modulation input for operators 2,3,4 */
+ static signed int mem;		/* one sample delay memory */
+@@ -1498,6 +1508,8 @@
+ 	PSG->eg_timer_overflow = ( 3 ) * (1<<EG_SH);
+ 	/*logerror("YM2151[init] eg_timer_add=%8x eg_timer_overflow=%8x\n", PSG->eg_timer_add, PSG->eg_timer_overflow);*/
+
++	ym2151_last_chip = PSG;
++
+ #ifdef USE_MAME_TIMERS
+ /* this must be done _before_ a call to YM2151ResetChip() */
+ 	PSG->timer_A = timer_alloc_ptr(timer_callback_a);
+@@ -2395,6 +2407,16 @@
+ 		SAVE_SINGLE_CHANNEL(6)
+ 		chan7_calc();
+ 		SAVE_SINGLE_CHANNEL(7)
++
++		/* Capture per-channel scope data before stereo panning */
++		if (PSG->scope_enabled) {
++			int ch;
++			for (ch = 0; ch < 8; ch++) {
++				float sample_f = (float)chanout[ch] / 16384.0f;
++				PSG->scope_buffer[ch][PSG->scope_write_pos[ch] & YM2151_SCOPE_BUFFER_MASK] = sample_f;
++				PSG->scope_write_pos[ch]++;
++			}
++		}
+
+ 		outl = chanout[0] & PSG->pan[0];
+ 		outr = chanout[0] & PSG->pan[1];
+@@ -2461,3 +2483,54 @@
+ 	PSG->porthandler = handler;
+ }
+
++void YM2151EnableScope(void *chip, int enable)
++{
++	YM2151 *PSG = chip;
++	int i;
++	unsigned int j;
++
++	if (!PSG)
++		return;
++
++	PSG->scope_enabled = enable;
++
++	if (enable) {
++		for (i = 0; i < YM2151_SCOPE_NUM_CHANNELS; i++) {
++			PSG->scope_write_pos[i] = 0;
++			for (j = 0; j < YM2151_SCOPE_BUFFER_SIZE; j++) {
++				PSG->scope_buffer[i][j] = 0.0f;
++			}
++		}
++	}
++}
++
++unsigned int YM2151GetScopeData(void *chip, int channel, float *buffer, unsigned int num_samples)
++{
++	YM2151 *PSG = chip;
++	unsigned int read_pos;
++	unsigned int i;
++
++	if (!PSG || !buffer || !PSG->scope_enabled)
++		return 0;
++
++	if (channel < 0 || channel >= YM2151_SCOPE_NUM_CHANNELS)
++		return 0;
++
++	if (num_samples > YM2151_SCOPE_BUFFER_SIZE)
++		num_samples = YM2151_SCOPE_BUFFER_SIZE;
++
++	read_pos = (PSG->scope_write_pos[channel] - num_samples + YM2151_SCOPE_BUFFER_SIZE)
++		& YM2151_SCOPE_BUFFER_MASK;
++
++	for (i = 0; i < num_samples; i++) {
++		buffer[i] = PSG->scope_buffer[channel][read_pos];
++		read_pos = (read_pos + 1) & YM2151_SCOPE_BUFFER_MASK;
++	}
++
++	return num_samples;
++}
++
++void *YM2151GetLastChip(void)
++{
++	return ym2151_last_chip;
++}

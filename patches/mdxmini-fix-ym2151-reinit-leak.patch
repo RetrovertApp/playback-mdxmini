@@ -1,0 +1,15 @@
+--- a/src/mdx2151.c
++++ b/src/mdx2151.c
+@@ -198,6 +198,12 @@
+     sample bits   = 16 bit
+     */
+
++  /* Free any existing YM2151 instance before reallocating */
++  if (self->YM2151_Instance) {
++    YM2151Shutdown(self->YM2151_Instance);
++    self->YM2151_Instance = NULL;
++  }
++
+   self->YM2151_Instance = YM2151Init( 1, 4000*1000, mdx->dsp_speed );
+   if (!self->YM2151_Instance) {
+     return FLAG_FALSE;

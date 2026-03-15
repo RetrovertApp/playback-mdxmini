@@ -1,0 +1,87 @@
+--- a/src/mdxmini.c	2022-07-27 02:53:01.000000000 +0200
++++ b/src/mdxmini.c	2026-02-17 23:21:14.846098168 +0100
+@@ -37,6 +37,12 @@
+
+ #endif
+
++#ifndef WIN32
++#include <ctype.h>
++#include <dirent.h>
++#include <libgen.h>
++#include <limits.h>
++#endif
+ 
+ /* ------------------------------------------------------------------ */
+ #define PATH_BUF_SIZE 1024
+@@ -392,16 +398,69 @@
+ 	return pcm8_get_buffer_size(data->songdata);
+ }
+ 
++#ifndef WIN32
++static int case_insensitive_compare(const unsigned char *a, const unsigned char *b) {
++	while (*a && *b) {
++		if (tolower(*a) != tolower(*b)) {
++			return 0;
++		}
++		a++;
++		b++;
++	}
++	return *a == *b;
++}
++
++static FILE *fopen_case_insensitive(const char *name, const char *mode) {
++	FILE *fp = fopen(name, mode);
++	if (fp) {
++		return fp;
++	}
++
++	char *nameDup = strdup(name);
++	char *dirName = dirname(nameDup);
++
++	if (!strcmp(dirName, ".")) {
++		free(nameDup);
++		return NULL;
++	}
++
++	DIR *dir = opendir(dirName);
++	if (dir == NULL) {
++		free(nameDup);
++		return NULL;
++	}
++
++	struct dirent *entry;
++
++	while ((entry = readdir(dir)) != NULL) {
++		if (case_insensitive_compare((const unsigned char *)entry->d_name, (const unsigned char *)basename((char *)name))) {
++			char pdxPath[PATH_MAX];
++			snprintf(pdxPath, sizeof(pdxPath), "%s/%s", dirName, entry->d_name);
++			fp = fopen(pdxPath, mode);
++			break;
++		}
++	}
++
++	closedir(dir);
++	free(nameDup);
++	return fp;
++}
++#endif
++
+ /* pdx loading */
+ 
+ static unsigned char*
+-_load_pdx_data(char* name, long* out_length) 
++_load_pdx_data(char* name, long* out_length)
+ {
+   int len;
+   FILE *fp;
+   unsigned char *buf = NULL;
+-  
++
++#ifdef WIN32
+   fp = fopen(name,"rb");
++#else
++  fp = fopen_case_insensitive(name,"rb");
++#endif
+ 
+   if (!fp)
+ 	return NULL;

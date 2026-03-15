@@ -1,0 +1,10 @@
+--- a/src/mdxfile.c
++++ b/src/mdxfile.c
+@@ -14,3 +14,7 @@
+ #include <string.h>
+ 
++#ifdef _WIN32
++#define strcasecmp _stricmp
++#endif
++
+ #include "version.h"

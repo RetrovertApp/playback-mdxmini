@@ -1,0 +1,14 @@
+--- a/src/pcm8.c
++++ b/src/pcm8.c
+@@ -134,6 +134,11 @@
+ {
+   pcm8_instances* self = (pcm8_instances *)in_self;
+   if (self) {
++    if (self->ym2151_voice[0]) free(self->ym2151_voice[0]);
++    if (self->ym2151_voice[1]) free(self->ym2151_voice[1]);
++    if (self->sample_buffer) free(self->sample_buffer);
++    if (self->sample_buffer2) free(self->sample_buffer2);
++    if (self->pcm_buffer) free(self->pcm_buffer);
+     free(self);
+   }
+ }
