@@ -3,7 +3,7 @@
 @@ -198,6 +198,12 @@
      sample bits   = 16 bit
      */
-
+ 
 +  /* Free any existing YM2151 instance before reallocating */
 +  if (self->YM2151_Instance) {
 +    YM2151Shutdown(self->YM2151_Instance);

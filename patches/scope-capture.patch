@@ -2,7 +2,7 @@
 +++ b/src/ym2151.h
 @@ -95,5 +95,21 @@
  void YM2151SetPortWriteHandler(void *chip, write8_handler handler);
-
+ 
  /* refresh chip when load state */
  void YM2151Postload(void *chip);
 +
@@ -25,7 +25,7 @@
 --- a/src/ym2151.c
 +++ b/src/ym2151.c
 @@ -172,6 +172,12 @@
-
+ 
  	unsigned int clock;					/* chip clock in Hz (passed from 2151intf.c) */
  	unsigned int sampfreq;				/* sampling frequency in Hz (passed from 2151intf.c) */
 +
@@ -35,10 +35,10 @@
 +	int      scope_enabled;
 +
  } YM2151;
-
-
+ 
+ 
 @@ -486,6 +492,10 @@
-
+ 
  /* these variables stay here for speedup purposes only */
  static YM2151 * PSG;
 +
@@ -51,7 +51,7 @@
 @@ -1498,6 +1508,8 @@
  	PSG->eg_timer_overflow = ( 3 ) * (1<<EG_SH);
  	/*logerror("YM2151[init] eg_timer_add=%8x eg_timer_overflow=%8x\n", PSG->eg_timer_add, PSG->eg_timer_overflow);*/
-
+ 
 +	ym2151_last_chip = PSG;
 +
  #ifdef USE_MAME_TIMERS
@@ -71,13 +71,13 @@
 +				PSG->scope_write_pos[ch]++;
 +			}
 +		}
-
+ 
  		outl = chanout[0] & PSG->pan[0];
  		outr = chanout[0] & PSG->pan[1];
 @@ -2461,3 +2483,54 @@
  	PSG->porthandler = handler;
  }
-
+ 
 +void YM2151EnableScope(void *chip, int enable)
 +{
 +	YM2151 *PSG = chip;
