@@ -1,9 +1,9 @@
 --- a/src/mdxmini.c	2022-07-27 02:53:01.000000000 +0200
 +++ b/src/mdxmini.c	2026-02-17 23:21:14.846098168 +0100
 @@ -37,6 +37,12 @@
-
+ 
  #endif
-
+ 
 +#ifndef WIN32
 +#include <ctype.h>
 +#include <dirent.h>
