@@ -19,6 +19,7 @@
 #include "ym2151.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -269,9 +270,60 @@ static void mdxmini_plugin_static_init(const RVService* service_api) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static uint32_t mdxmini_plugin_get_scope_data(void* user_data, int channel, float* buffer, uint32_t num_samples) {
+static bool mdxmini_plugin_get_structure(void* user_data, RVVizInfo* out) {
     MdxReplayerData* data = (MdxReplayerData*)user_data;
-    if (data == nullptr || !data->initialized || buffer == nullptr) {
+    if (data == nullptr || out == nullptr) {
+        return false;
+    }
+
+    out->caps = RVVizCaps_Scope;
+    out->scroll_mode = RVScrollMode_Synchronized;
+    out->pattern_channel_count = 0;
+    out->scope_channel_count = 8; // YM2151: 8 FM channels
+    out->column_count = 0;
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static uint32_t mdxmini_plugin_get_scope_channels(void* user_data, RVChannelDesc* out, uint32_t cap) {
+    (void)user_data;
+    if (out == nullptr) {
+        return 0;
+    }
+
+    static const char* s_names[] = { "FM 1", "FM 2", "FM 3", "FM 4", "FM 5", "FM 6", "FM 7", "FM 8" };
+    uint32_t count = 8;
+    if (count > cap)
+        count = cap;
+    for (uint32_t i = 0; i < count; i++) {
+        memset(out[i].name, 0, sizeof(out[i].name));
+        snprintf((char*)out[i].name, sizeof(out[i].name), "%s", s_names[i]);
+        out[i].scope_width = 0;
+    }
+    return count;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static void mdxmini_plugin_set_scope_enabled(void* user_data, bool on) {
+    MdxReplayerData* data = (MdxReplayerData*)user_data;
+    if (data == nullptr) {
+        return;
+    }
+
+    void* chip = YM2151GetLastChip();
+    if (chip != nullptr) {
+        YM2151EnableScope(chip, on ? 1 : 0);
+    }
+    data->scope_enabled = on;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static uint32_t mdxmini_plugin_get_scope_samples(void* user_data, int32_t channel, float* out, uint32_t cap) {
+    MdxReplayerData* data = (MdxReplayerData*)user_data;
+    if (data == nullptr || !data->initialized || out == nullptr || !data->scope_enabled) {
         return 0;
     }
 
@@ -280,25 +332,7 @@ static uint32_t mdxmini_plugin_get_scope_data(void* user_data, int channel, floa
         return 0;
     }
 
-    if (!data->scope_enabled) {
-        YM2151EnableScope(chip, 1);
-        data->scope_enabled = true;
-    }
-
-    return YM2151GetScopeData(chip, channel, buffer, num_samples);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-static uint32_t mdxmini_plugin_get_scope_channel_names(void* user_data, const char** names, uint32_t max_channels) {
-    (void)user_data;
-    static const char* s_names[] = { "FM 1", "FM 2", "FM 3", "FM 4", "FM 5", "FM 6", "FM 7", "FM 8" };
-    uint32_t count = 8;
-    if (count > max_channels)
-        count = max_channels;
-    for (uint32_t i = 0; i < count; i++)
-        names[i] = s_names[i];
-    return count;
+    return YM2151GetScopeData(chip, channel, out, cap);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -320,12 +354,19 @@ static RVPlaybackPlugin g_mdxmini_plugin = {
     mdxmini_plugin_metadata,
     mdxmini_plugin_static_init,
     nullptr, // settings_updated
-    nullptr, // get_tracker_info
-    nullptr, // get_pattern_cell
-    nullptr, // get_pattern_num_rows
-    mdxmini_plugin_get_scope_data,
     nullptr, // static_destroy
-    mdxmini_plugin_get_scope_channel_names,
+
+    // Visualization: scope-only (YM2151 FM channels, no pattern grid).
+    mdxmini_plugin_get_structure,
+    nullptr, // get_columns
+    nullptr, // get_pattern_channels
+    mdxmini_plugin_get_scope_channels,
+    nullptr, // get_position
+    nullptr, // get_channel_rows
+    nullptr, // get_cells
+    mdxmini_plugin_set_scope_enabled,
+    mdxmini_plugin_get_scope_samples,
+    nullptr, // get_vu
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
