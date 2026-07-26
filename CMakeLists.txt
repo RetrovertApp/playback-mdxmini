@@ -24,6 +24,11 @@ download_library(
 file(GLOB MDXMINI_SOURCES ${mdxmini_SOURCE_DIR}/src/*.c)
 add_library(mdxmini_static STATIC ${MDXMINI_SOURCES})
 target_include_directories(mdxmini_static PUBLIC ${mdxmini_SOURCE_DIR}/src)
+if(WIN32)
+    # mdxmini uses the legacy WIN32 spelling rather than the compiler-provided
+    # _WIN32 macro to guard its POSIX-only directory handling.
+    target_compile_definitions(mdxmini_static PRIVATE WIN32)
+endif()
 suppress_external_warnings(mdxmini_static)
 set_target_properties(mdxmini_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
