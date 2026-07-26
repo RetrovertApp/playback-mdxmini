@@ -9,6 +9,7 @@ project(playback_mdxmini C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(PlaybackPlugin)
+include(CTest)
 
 # Download mdxmini v2.0.0
 download_library(
@@ -35,6 +36,7 @@ set_target_properties(mdxmini_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Plugin shared library
 add_library(mdxmini_playback SHARED
     mdxmini_plugin.c
+    title_encoding.c
 )
 
 target_include_directories(mdxmini_playback PRIVATE
@@ -43,6 +45,8 @@ target_include_directories(mdxmini_playback PRIVATE
 
 target_link_libraries(mdxmini_playback PRIVATE mdxmini_static)
 if(UNIX)
+    find_package(Iconv REQUIRED)
+    target_link_libraries(mdxmini_playback PRIVATE Iconv::Iconv)
     target_link_libraries(mdxmini_playback PRIVATE m)
 endif()
 
@@ -51,3 +55,14 @@ target_compile_options(mdxmini_playback PRIVATE
 )
 
 rv_set_plugin_properties(mdxmini_playback)
+
+if(BUILD_TESTING)
+    add_executable(title_encoding_test
+        tests/title_encoding_test.c
+        title_encoding.c
+    )
+    if(UNIX)
+        target_link_libraries(title_encoding_test PRIVATE Iconv::Iconv)
+    endif()
+    add_test(NAME title_encoding_test COMMAND title_encoding_test)
+endif()

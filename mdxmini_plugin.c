@@ -16,6 +16,7 @@
 #include <retrovert/service.h>
 
 #include "mdxmini.h"
+#include "title_encoding.h"
 #include "ym2151.h"
 
 #include <stdlib.h>
@@ -230,12 +231,14 @@ static int mdxmini_plugin_metadata(const char* url, const RVService* service_api
 
     RVMetadataId index = rv_metadata_create_url(url);
 
-    // Get title (may be Shift-JIS encoded)
-    char title[256];
-    memset(title, 0, sizeof(title));
-    mdx_get_title(&mdx, title);
-    if (title[0] != '\0') {
-        rv_metadata_set_tag(index, RV_METADATA_TITLE_TAG, title);
+    // MDX stores titles as CP932/Shift-JIS; the metadata API expects UTF-8.
+    char shift_jis_title[MDX_MAX_TITLE_LENGTH];
+    char utf8_title[MDX_MAX_TITLE_LENGTH * 3 + 1];
+    memset(shift_jis_title, 0, sizeof(shift_jis_title));
+    mdx_get_title(&mdx, shift_jis_title);
+    if (shift_jis_title[0] != '\0'
+        && mdx_title_to_utf8(shift_jis_title, utf8_title, sizeof(utf8_title)) == 0) {
+        rv_metadata_set_tag(index, RV_METADATA_TITLE_TAG, utf8_title);
     }
 
     // Set song type
