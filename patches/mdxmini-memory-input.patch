@@ -1,0 +1,210 @@
+--- a/src/mdx.h
++++ b/src/mdx.h
+@@ -205,6 +205,7 @@
+ /* functions */
+ 
+ extern MDX_DATA *mdx_open_mdx( char * );
++extern MDX_DATA *mdx_open_mdx_data( const unsigned char *, long );
+ extern PDX_DATA *mdx_open_pdx( unsigned char *, long length );
+ extern int mdx_close_mdx( MDX_DATA * );
+ extern int mdx_close_pdx( PDX_DATA * );
+--- a/src/mdxfile.c
++++ b/src/mdxfile.c
+@@ -75,22 +75,11 @@
+   return FLAG_TRUE;
+ }
+ 
+-MDX_DATA *mdx_open_mdx( char *name ) {
++static MDX_DATA *__parse_mdx( MDX_DATA *mdx ) {
+ 
+   int i,j;
+   int ptr;
+   unsigned char *buf;
+-  MDX_DATA *mdx;
+-
+-  /* allocate work area */
+-
+-  mdx = __alloc_mdxwork();
+-  if ( mdx == NULL ) return NULL;
+-
+-  /* data read */
+-  if (!__load_file(mdx, name)) {
+-    goto error_end;
+-  }
+ 
+   /* title parsing */
+ 
+@@ -201,6 +190,39 @@
+   return NULL;
+ }
+ 
++MDX_DATA *mdx_open_mdx( char *name ) {
++  MDX_DATA *mdx = __alloc_mdxwork();
++  if ( mdx == NULL ) return NULL;
++
++  if (!__load_file(mdx, name)) {
++    free(mdx);
++    return NULL;
++  }
++
++  return __parse_mdx(mdx);
++}
++
++MDX_DATA *mdx_open_mdx_data( const unsigned char *data, long length ) {
++  MDX_DATA *mdx;
++
++  if ( data == NULL || length <= 0 ) return NULL;
++
++  mdx = __alloc_mdxwork();
++  if ( mdx == NULL ) return NULL;
++
++  mdx->data = (unsigned char *)malloc((size_t)length + 16);
++  if ( mdx->data == NULL ) {
++    free(mdx);
++    return NULL;
++  }
++
++  memcpy(mdx->data, data, (size_t)length);
++  memset(mdx->data + length, 0, 16);
++  mdx->length = length;
++
++  return __parse_mdx(mdx);
++}
++
+ int mdx_close_mdx ( MDX_DATA *mdx ) {
+ 
+   if ( mdx == NULL ) return 1;
+--- a/src/mdxmini.h
++++ b/src/mdxmini.h
+@@ -63,6 +63,14 @@
+  */
+ int  mdx_open(t_mdxmini *data, char *filename, char *pcmdir);
+ /**
++ * \brief Initializes an MDX song from memory, with an optional PDX sample bank.
++ *
++ * The input buffers are copied/decoded during this call and may be released
++ * immediately after it returns.
++ */
++int mdx_open_memory(t_mdxmini *data, const unsigned char *mdx_data, long mdx_length,
++                    const unsigned char *pdx_data, long pdx_length);
++/**
+  * \brief Finalizes the structs contained within a t_mdxmini struct.
+  *
+  * \param data the struct to finalize.
+--- a/src/mdxmini.c
++++ b/src/mdxmini.c
+@@ -95,14 +95,18 @@
+ 
+ /* ------------------------------------------------------------------ */
+ 
+-int mdx_open( t_mdxmini *data, char *filename , char *pcmdir )
++static int mdx_open_parsed( t_mdxmini *data, MDX_DATA *mdx, PDX_DATA *pdx )
+ {
+   data->nlg_tempo = -1;
+-
+-  data->songdata = malloc(sizeof(songdata));
+-
+-  MDX_DATA *mdx = NULL;
+-  PDX_DATA *pdx = NULL;
++  data->mdx = mdx;
++  data->pdx = pdx;
++  data->self = NULL;
++  data->songdata = calloc(1, sizeof(songdata));
++  if (!data->songdata) {
++    mdx_close_pdx(pdx);
++    mdx_close_mdx(mdx);
++    return -1;
++  }
+ 
+   pdx_pathname        = (char *)NULL;
+   no_pdx              = FLAG_FALSE;
+@@ -134,19 +138,14 @@
+ 
+   if (!self_construct(data->songdata)) {
+     /* failed to create class instances */
++    free(data->songdata);
++    data->songdata = NULL;
++    mdx_close_pdx(pdx);
++    mdx_close_mdx(mdx);
++    data->mdx = NULL;
++    data->pdx = NULL;
+     return -1;
+   }
+-    /* load mdx file */
+-
+-    data->mdx = mdx_open_mdx( filename );
+-    if ( !data->mdx ) 
+-		return -1;
+-		
+-	mdx = data->mdx;
+-	
+-	if ( pcmdir )
+-		strcpy(mdx->pdx_dir , pcmdir );
+-	
+ 
+     mdx->is_use_pcm8         = no_pdx      == FLAG_TRUE ? FLAG_FALSE:FLAG_TRUE;
+     mdx->is_use_fm           = no_fm       == FLAG_TRUE ? FLAG_FALSE:FLAG_TRUE;
+@@ -182,15 +181,18 @@
+     /* voice data load */
+ 
+     if ( mdx_get_voice_parameter( mdx ) != 0 )
++	{
++		mdx_close(data);
+ 		return -1;
++	}
+ 	
+-    /* load pdx data */
+-    pdx = data->pdx = _get_pdx( mdx, filename );
+-
+ 	data->self = mdx_parse_mml_ym2151_async_initialize(mdx, pdx, data->songdata);
+ 
+ 	if (!data->self)
+-			return -1;
++	{
++		mdx_close(data);
++		return -1;
++	}
+ 			
+ 	data->samples = 0;
+ 	data->channels = pcm8_get_output_channels(data->songdata);
+@@ -198,6 +200,40 @@
+ 	return 0;
+ }
+ 
++int mdx_open( t_mdxmini *data, char *filename , char *pcmdir )
++{
++  MDX_DATA *mdx = mdx_open_mdx( filename );
++  PDX_DATA *pdx;
++
++  if ( !mdx )
++    return -1;
++
++  if ( pcmdir )
++    strcpy(mdx->pdx_dir , pcmdir );
++
++  pdx = _get_pdx( mdx, filename );
++  return mdx_open_parsed(data, mdx, pdx);
++}
++
++int mdx_open_memory( t_mdxmini *data, const unsigned char *mdx_data, long mdx_length,
++                     const unsigned char *pdx_data, long pdx_length )
++{
++  MDX_DATA *mdx = mdx_open_mdx_data(mdx_data, mdx_length);
++  PDX_DATA *pdx = NULL;
++
++  if ( !mdx )
++    return -1;
++
++  if ( pdx_data && pdx_length > 0 )
++    pdx = mdx_open_pdx((unsigned char *)pdx_data, pdx_length);
++
++  mdx->pdx_enable = FLAG_TRUE;
++  if ( !pdx )
++    mdx->haspdx = FLAG_FALSE;
++
++  return mdx_open_parsed(data, mdx, pdx);
++}
++
+ void mdx_set_dir ( t_mdxmini *data , char  * dir )
+ {
+ 	strcpy(data->mdx->pdx_dir, dir );

@@ -10,6 +10,7 @@
 #define nullptr ((void*)0)
 #endif
 
+#include <retrovert/io.h>
 #include <retrovert/log.h>
 #include <retrovert/metadata.h>
 #include <retrovert/playback.h>
@@ -19,6 +20,7 @@
 #include "title_encoding.h"
 #include "ym2151.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +37,7 @@
 
 RV_PLUGIN_USE_LOG_API();
 RV_PLUGIN_USE_METADATA_API();
+RV_PLUGIN_USE_IO_API();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -47,27 +50,102 @@ typedef struct MdxReplayerData {
 } MdxReplayerData;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Extract the directory path from a URL/filepath
+// Extract the optional PDX filename from the MDX header. The name follows the
+// title terminator (CR LF SUB) and is NUL-terminated.
+static bool mdxmini_pdx_name(const uint8_t* data, uint64_t size, char* out, size_t out_size) {
+    uint64_t pos = 0;
+    size_t name_len = 0;
 
-static void extract_directory(const char* path, char* dir, size_t dir_size) {
-    const char* last_sep = strrchr(path, '/');
-#ifdef _WIN32
-    const char* last_bsep = strrchr(path, '\\');
-    if (last_bsep != nullptr && (last_sep == nullptr || last_bsep > last_sep)) {
-        last_sep = last_bsep;
+    if (data == nullptr || out == nullptr || out_size < 5) {
+        return false;
     }
-#endif
-    if (last_sep != nullptr) {
-        size_t len = (size_t)(last_sep - path);
-        if (len >= dir_size) {
-            len = dir_size - 1;
+
+    while (pos + 2 < size && !(data[pos] == 0x0d && data[pos + 1] == 0x0a && data[pos + 2] == 0x1a)) {
+        pos++;
+    }
+    if (pos + 3 >= size) {
+        return false;
+    }
+    pos += 3;
+
+    while (pos < size && data[pos] != 0 && name_len + 1 < out_size) {
+        out[name_len++] = (char)data[pos++];
+    }
+    if (pos >= size || data[pos] != 0 || name_len == 0) {
+        return false;
+    }
+    out[name_len] = '\0';
+
+    if (name_len < 4 || strcasecmp(out + name_len - 4, ".pdx") != 0) {
+        if (name_len + 4 >= out_size) {
+            return false;
         }
-        memcpy(dir, path, len);
-        dir[len] = '\0';
-    } else {
-        dir[0] = '.';
-        dir[1] = '\0';
+        memcpy(out + name_len, ".pdx", 4);
+        name_len += 4;
     }
+    out[name_len] = '\0';
+    return true;
+}
+
+static char* mdxmini_sidecar_url(const char* url, const char* pdx_name) {
+    const char* last_sep = strrchr(url, '/');
+    const char* last_backslash = strrchr(url, '\\');
+    size_t prefix_len;
+    size_t name_len = strlen(pdx_name);
+    char* sidecar_url;
+
+    if (last_backslash != nullptr && (last_sep == nullptr || last_backslash > last_sep)) {
+        last_sep = last_backslash;
+    }
+    prefix_len = last_sep == nullptr ? 0 : (size_t)(last_sep - url) + 1;
+    if (prefix_len > SIZE_MAX - name_len - 1) {
+        return nullptr;
+    }
+
+    sidecar_url = malloc(prefix_len + name_len + 1);
+    if (sidecar_url == nullptr) {
+        return nullptr;
+    }
+    memcpy(sidecar_url, url, prefix_len);
+    memcpy(sidecar_url + prefix_len, pdx_name, name_len + 1);
+    return sidecar_url;
+}
+
+static int mdxmini_open_url(t_mdxmini* mdx, const char* url) {
+    RVIoReadUrlResult mdx_file = rv_io_read_url_to_memory(url);
+    RVIoReadUrlResult pdx_file = { nullptr, 0 };
+    char pdx_name[MDX_MAX_PDX_FILENAME_LENGTH];
+    char* pdx_url = nullptr;
+    int result;
+
+    if (mdx_file.data == nullptr || mdx_file.data_size == 0 || mdx_file.data_size > LONG_MAX) {
+        rv_error("MDXmini: failed to read %s through RVIo", url);
+        if (mdx_file.data != nullptr) {
+            rv_io_free_url_to_memory(mdx_file.data);
+        }
+        return -1;
+    }
+
+    if (mdxmini_pdx_name(mdx_file.data, mdx_file.data_size, pdx_name, sizeof(pdx_name))) {
+        pdx_url = mdxmini_sidecar_url(url, pdx_name);
+        if (pdx_url != nullptr) {
+            pdx_file = rv_io_read_url_to_memory(pdx_url);
+            if (pdx_file.data != nullptr && (pdx_file.data_size == 0 || pdx_file.data_size > LONG_MAX)) {
+                rv_error("MDXmini: invalid PDX size for %s", pdx_url);
+                rv_io_free_url_to_memory(pdx_file.data);
+                pdx_file = (RVIoReadUrlResult) { nullptr, 0 };
+            }
+        }
+    }
+
+    result = mdx_open_memory(mdx, mdx_file.data, (long)mdx_file.data_size, pdx_file.data,
+                             (long)pdx_file.data_size);
+    if (pdx_file.data != nullptr) {
+        rv_io_free_url_to_memory(pdx_file.data);
+    }
+    rv_io_free_url_to_memory(mdx_file.data);
+    free(pdx_url);
+    return result;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,13 +193,8 @@ static int mdxmini_plugin_open(void* user_data, const char* url, uint32_t subson
         data->initialized = 0;
     }
 
-    // Extract directory for PDX sample loading
-    char dir[2048];
-    extract_directory(url, dir, sizeof(dir));
-
-    // mdx_open takes a filesystem path directly
     memset(&data->mdx, 0, sizeof(t_mdxmini));
-    if (mdx_open(&data->mdx, (char*)url, dir) < 0) {
+    if (mdxmini_open_url(&data->mdx, url) < 0) {
         rv_error("MDXmini: failed to open %s", url);
         return -1;
     }
@@ -184,7 +257,11 @@ static RVReadInfo mdxmini_plugin_read_data(void* user_data, RVReadData dest) {
     }
 
     // Calculate how many S16 stereo frames fit in the output buffer
-    uint32_t max_frames = dest.channels_output_max_bytes_size / (sizeof(int16_t) * 2);
+    uint32_t capacity_frames = dest.channels_output_max_bytes_size / (sizeof(int16_t) * 2);
+    uint32_t max_frames = dest.info.frame_count;
+    if (max_frames == 0 || max_frames > capacity_frames) {
+        max_frames = capacity_frames;
+    }
 
     // mdx_calc_sample outputs interleaved stereo S16 directly to output buffer
     mdx_calc_sample(&data->mdx, (int16_t*)dest.channels_output, (int)max_frames);
@@ -220,10 +297,7 @@ static int mdxmini_plugin_metadata(const char* url, const RVService* service_api
     t_mdxmini mdx;
     memset(&mdx, 0, sizeof(t_mdxmini));
 
-    char dir[2048];
-    extract_directory(url, dir, sizeof(dir));
-
-    if (mdx_open(&mdx, (char*)url, dir) < 0) {
+    if (mdxmini_open_url(&mdx, url) < 0) {
         return -1;
     }
 
@@ -266,6 +340,7 @@ static void mdxmini_plugin_event(void* user_data, uint8_t* event_data, uint64_t 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 static void mdxmini_plugin_static_init(const RVService* service_api) {
+    rv_init_io_api(service_api);
     rv_init_log_api(service_api);
     rv_init_metadata_api(service_api);
     mdx_set_rate(MDX_SAMPLE_RATE);

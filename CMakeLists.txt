@@ -18,7 +18,7 @@ download_library(
     FILENAME "mdxmini-2.0.0.tar.gz"
     HASH "9b623b365e893a769084f7a2effedc9ece453c6e3861c571ba503f045471a0e0"
     EXTRACT_DIR "mdxmini-2.0.0"
-    PATCHES patches/mdxmini-strcasecmp-win32.patch patches/mdxmini-extern-c.patch patches/mdxmini-case-insensitive.patch patches/mdxmini-fix-memory-leaks.patch patches/mdxmini-fix-pcm8-leaks.patch patches/mdxmini-fix-ym2151-leak.patch patches/mdxmini-fix-ym2151-reinit-leak.patch patches/scope-capture.patch
+    PATCHES patches/mdxmini-strcasecmp-win32.patch patches/mdxmini-extern-c.patch patches/mdxmini-case-insensitive.patch patches/mdxmini-fix-memory-leaks.patch patches/mdxmini-fix-pcm8-leaks.patch patches/mdxmini-fix-ym2151-leak.patch patches/mdxmini-fix-ym2151-reinit-leak.patch patches/scope-capture.patch patches/mdxmini-memory-input.patch
 )
 
 # Build mdxmini as a static library
