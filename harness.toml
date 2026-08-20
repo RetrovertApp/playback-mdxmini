@@ -1,0 +1,10 @@
+[plugin]
+name = "mdxmini"
+
+[data]
+entries = []
+
+[[fixtures]]
+file = "fixtures/f_trial103mdx.zip"
+sha256 = "c058a17aafbcb0def939a14bc619f25a4539bcaa282755c610a64bf7f508b6d2"
+members = ["f_trial.mdx"]

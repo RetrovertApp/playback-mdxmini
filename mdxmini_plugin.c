@@ -258,10 +258,7 @@ static RVReadInfo mdxmini_plugin_read_data(void* user_data, RVReadData dest) {
 
     // Calculate how many S16 stereo frames fit in the output buffer
     uint32_t capacity_frames = dest.channels_output_max_bytes_size / (sizeof(int16_t) * 2);
-    uint32_t max_frames = dest.info.frame_count;
-    if (max_frames == 0 || max_frames > capacity_frames) {
-        max_frames = capacity_frames;
-    }
+    uint32_t max_frames = dest.info.frame_count < capacity_frames ? dest.info.frame_count : capacity_frames;
 
     // mdx_calc_sample outputs interleaved stereo S16 directly to output buffer
     mdx_calc_sample(&data->mdx, (int16_t*)dest.channels_output, (int)max_frames);
